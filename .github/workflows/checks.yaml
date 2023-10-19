@@ -1,59 +1,49 @@
-name: Checks
 on:
-  pull_request:
-    branches:
-      - main
   push:
     branches:
-      - main
-  workflow_dispatch:
+      - master
+      - main  # Adjust according to your needs
 
 jobs:
-  ci: 
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      status: ${{ job.status }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-
-    - name : Run EC Validate (keyless)
-      uses: ./
+    - uses: actions/checkout@v3
       with:
-        image: ghcr.io/enterprise-contract/golden-container:latest@sha256:63c006b879ad08aec9a80ed6c340335972311747eb42c83566a1eab46e404c1d # latest
-        identity: https:\/\/github\.com\/(slsa-framework\/slsa-github-generator|enterprise-contract\/golden-container)\/
-        issuer: https://token.actions.githubusercontent.com
+        fetch-depth: '0'
 
-    #FIXME Commented out because the golden-image on quay.io is failing due to a violation in the image. 
-    # - name : Run EC Validate (Long_Lived)
-    #   uses: ./
-    #   with:
-    #     image: quay.io/redhat-appstudio/ec-golden-image:latest
-    #     key: ${{ vars.PUBLIC_KEY }}
-    #     policy: github.com/enterprise-contract/config//slsa3
-    #     extra-params: --ignore-rekor
-
-  release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    needs: ci 
-    if: needs.ci.outputs.status == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    steps:
-    - name: Get Latest Version Tag and Increment 
+    - name: Get Latest Version Tag and Increment
       run: |
-        # Find the version tag and then increment new version with v prefix eg. v1.0.1 -> v1.0.2
-        latestVTag=$(gh api -H 'Accept: application/vnd.github.v3+json' /repos/${{ github.repository }}/releases/latest -q '.tag_name')
-        echo "newVersion=v$(echo ${latestVTag#v} | awk -F. '{$NF = $NF + 1;} 1' OFS=.)" >> $GITHUB_ENV
+          latestVTag=$(gh api -H 'Accept: application/vnd.github.v3+json' /repos/${{ github.repository }}/releases/latest -q '.tag_name')
+          echo "Latest Version Tag: $latestVTag"
+          
+          major=$(echo ${latestVTag#v} | awk -F. '{print $1}')
+          minor=$(echo ${latestVTag#v} | awk -F. '{print $2}')
+          patch=$(echo ${latestVTag#v} | awk -F. '{print $3}')
+          
+          if [ "$patch" -eq "9" ]; then
+            if [ "$minor" -eq "9" ]; then
+              major=$((major + 1))
+              minor=0
+              patch=0
+            else
+              minor=$((minor + 1))
+              patch=0
+            fi
+          else
+            patch=$((patch + 1))
+          fi
+
+          echo "newVersion=v$major.$minor.$patch" >> $GITHUB_ENV
       env:
         GH_TOKEN: ${{ github.token }}
         
     - name: Create New Version Release
       uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
       with:
-        name: ${{ env.newVersion }} Release
-        body: ""
-        tag_name: ${{ env.newVersion }}
-        generate_release_notes: true
-        draft: false
-        prerelease: false
+          name: ${{ env.newVersion }} Release
+          body: ""
+          tag_name: ${{ env.newVersion }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
